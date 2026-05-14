@@ -1,0 +1,689 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>📌 Smart Sticky Notes</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.9/babel.min.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;600;700;900&display=swap" rel="stylesheet">
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: 'Noto Sans TC', -apple-system, BlinkMacSystemFont, sans-serif; min-height: 100vh; background: linear-gradient(135deg, #FEFCE8 0%, #FFF7ED 30%, #FDF2F8 60%, #EFF6FF 100%); }
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-thumb { background: #CBD5E1; border-radius: 3px; }
+input, select, button { font-family: inherit; }
+@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.6; } }
+.animate-pulse { animation: pulse 2s ease-in-out infinite; }
+@keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+.fade-in { animation: fadeIn 0.25s ease-out; }
+@keyframes modalIn { from { opacity: 0; transform: scale(0.95); } to { opacity: 1; transform: scale(1); } }
+.modal-in { animation: modalIn 0.2s ease-out; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useEffect, useReducer, useCallback, useRef } = React;
+
+// ── Helpers ──
+const uid = () => Math.random().toString(36).slice(2, 10);
+const todayStr = () => new Date().toISOString().slice(0, 10);
+const daysBetween = (a, b) => Math.ceil((new Date(a) - new Date(b)) / 86400000);
+const formatDate = (d) => {
+  if (!d) return "";
+  const dt = new Date(d + "T00:00:00");
+  return dt.toLocaleDateString("zh-TW", { month: "short", day: "numeric" });
+};
+
+const STORAGE_KEY = "smart-sticky-notes-data";
+const saveData = (data) => { try { localStorage.setItem(STORAGE_KEY, JSON.stringify(data)); } catch(e) {} };
+const loadData = () => { try { const d = localStorage.getItem(STORAGE_KEY); return d ? JSON.parse(d) : null; } catch(e) { return null; } };
+
+const COLORS = [
+  { name: "陽光黃", bg: "#FEF9C3", border: "#EAB308", text: "#854D0E", accent: "#CA8A04" },
+  { name: "蜜桃橘", bg: "#FED7AA", border: "#EA580C", text: "#9A3412", accent: "#DC2626" },
+  { name: "薄荷綠", bg: "#D1FAE5", border: "#10B981", text: "#065F46", accent: "#059669" },
+  { name: "天空藍", bg: "#DBEAFE", border: "#3B82F6", text: "#1E3A8A", accent: "#2563EB" },
+  { name: "薰衣紫", bg: "#EDE9FE", border: "#8B5CF6", text: "#4C1D95", accent: "#7C3AED" },
+  { name: "玫瑰粉", bg: "#FCE7F3", border: "#EC4899", text: "#831843", accent: "#DB2777" },
+];
+
+const STATUSES = [
+  { key: "todo", label: "待辦", icon: "○", color: "#94A3B8" },
+  { key: "doing", label: "進行中", icon: "◐", color: "#3B82F6" },
+  { key: "done", label: "已完成", icon: "●", color: "#10B981" },
+];
+
+const PRIORITIES = [
+  { key: "urgent", label: "緊急", icon: "🔴", sort: 0 },
+  { key: "high", label: "重要", icon: "🟠", sort: 1 },
+  { key: "medium", label: "一般", icon: "🟡", sort: 2 },
+  { key: "low", label: "低", icon: "🟢", sort: 3 },
+];
+
+const TAGS = ["研究", "寫作", "會議", "行政", "閱讀", "翻譯", "數據", "其他"];
+
+const defaultNote = () => ({
+  id: uid(), title: "", status: "todo", priority: "medium", colorIdx: 0,
+  tags: [], dueDate: "", subtasks: [], createdAt: todayStr(), progress: 0, memo: "", fileLinks: [],
+});
+
+const sampleNotes = [
+  { id: uid(), title: "完成文獻回顧第三章", status: "doing", priority: "urgent", colorIdx: 3, tags: ["研究", "寫作"], dueDate: "2026-02-14", subtasks: [{ id: uid(), text: "整理 30 篇核心文獻", done: true }, { id: uid(), text: "撰寫理論框架", done: false }, { id: uid(), text: "交叉比對研究方法", done: false }], createdAt: "2026-02-10", progress: 33, memo: "已完成文獻篩選，理論框架預計參考 Johnson (2024) 的分類方式", fileLinks: [{ id: uid(), name: "文獻回顧草稿.docx", url: "C:\\Research\\Literature_Review_Ch3.docx", type: "local" }, { id: uid(), name: "參考文獻清單", url: "https://docs.google.com/spreadsheets/d/example", type: "cloud" }] },
+  { id: uid(), title: "翻譯合作論文摘要", status: "todo", priority: "high", colorIdx: 4, tags: ["翻譯"], dueDate: "2026-02-18", subtasks: [{ id: uid(), text: "英翻中初稿", done: false }, { id: uid(), text: "校對專有名詞", done: false }], createdAt: "2026-02-11", progress: 0, memo: "與李教授合作，注意 methodology 相關術語需統一", fileLinks: [{ id: uid(), name: "原文論文.pdf", url: "C:\\Research\\Papers\\collaborative_paper.pdf", type: "local" }] },
+  { id: uid(), title: "提交 IRB 申請表", status: "todo", priority: "urgent", colorIdx: 5, tags: ["行政"], dueDate: "2026-02-13", subtasks: [], createdAt: "2026-02-08", progress: 0, memo: "", fileLinks: [] },
+  { id: uid(), title: "整理實驗數據 Batch 5", status: "doing", priority: "medium", colorIdx: 1, tags: ["數據", "研究"], dueDate: "2026-02-20", subtasks: [{ id: uid(), text: "清洗原始數據", done: true }, { id: uid(), text: "跑統計分析", done: false }], createdAt: "2026-02-09", progress: 50, memo: "原始數據有 12 筆異常值需確認是否排除", fileLinks: [{ id: uid(), name: "Batch5 原始數據", url: "https://drive.google.com/file/d/example", type: "cloud" }] },
+  { id: uid(), title: "閱讀 Smith et al. (2025)", status: "done", priority: "low", colorIdx: 2, tags: ["閱讀"], dueDate: "2026-02-10", subtasks: [{ id: uid(), text: "精讀方法論", done: true }, { id: uid(), text: "摘錄重點筆記", done: true }], createdAt: "2026-02-05", progress: 100, memo: "方法論部分對本研究有重要參考價值，已摘錄至 Notion", fileLinks: [] },
+];
+
+// ── Reducer ──
+function reducer(state, action) {
+  let next;
+  switch (action.type) {
+    case "ADD_NOTE": next = { ...state, notes: [...state.notes, { ...defaultNote(), ...action.payload }] }; break;
+    case "UPDATE_NOTE": next = { ...state, notes: state.notes.map(n => n.id === action.id ? { ...n, ...action.payload } : n) }; break;
+    case "DELETE_NOTE": next = { ...state, notes: state.notes.filter(n => n.id !== action.id) }; break;
+    case "SET_VIEW": next = { ...state, view: action.view }; break;
+    case "SET_FILTER": next = { ...state, filter: { ...state.filter, ...action.payload } }; break;
+    case "LOAD": next = { ...state, notes: action.notes }; break;
+    default: next = state;
+  }
+  saveData(next.notes);
+  return next;
+}
+
+const initState = {
+  notes: loadData() || sampleNotes,
+  view: "board",
+  filter: { status: "all", priority: "all", tag: "all" },
+};
+
+// ── Sub-components ──
+
+function DueBadge({ dueDate, status }) {
+  if (!dueDate) return null;
+  const diff = daysBetween(dueDate, todayStr());
+  const isDone = status === "done";
+  let label, bg, color;
+  if (isDone) { label = "✓ " + formatDate(dueDate); bg = "#D1FAE5"; color = "#065F46"; }
+  else if (diff < 0) { label = "逾期 " + (-diff) + " 天"; bg = "#FEE2E2"; color = "#DC2626"; }
+  else if (diff === 0) { label = "今天到期！"; bg = "#FEF3C7"; color = "#B45309"; }
+  else if (diff <= 2) { label = "剩 " + diff + " 天"; bg = "#FFEDD5"; color = "#C2410C"; }
+  else { label = formatDate(dueDate); bg = "#F1F5F9"; color = "#64748B"; }
+  return <span style={{ fontSize: 11, padding: "2px 8px", borderRadius: 99, background: bg, color, fontWeight: 600, whiteSpace: "nowrap" }} className={diff < 0 && !isDone ? "animate-pulse" : ""}>{label}</span>;
+}
+
+function ProgressBar({ note }) {
+  const sub = note.subtasks;
+  const pct = sub.length > 0 ? Math.round(sub.filter(s => s.done).length / sub.length * 100) : note.progress;
+  const clr = pct === 100 ? "#10B981" : pct > 50 ? "#3B82F6" : pct > 0 ? "#EAB308" : "#CBD5E1";
+  return (
+    <div style={{ width: "100%", marginTop: 8 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
+        <span style={{ fontSize: 10, color: "#64748B" }}>進度</span>
+        <span style={{ fontSize: 10, fontWeight: 700, color: clr }}>{pct}%</span>
+      </div>
+      <div style={{ height: 4, borderRadius: 4, background: "#E2E8F0", overflow: "hidden" }}>
+        <div style={{ width: pct + "%", height: "100%", borderRadius: 4, background: clr, transition: "width 0.5s ease" }} />
+      </div>
+    </div>
+  );
+}
+
+function SubtaskEditor({ subtasks, onChange }) {
+  const [newText, setNewText] = useState("");
+  const toggle = (id) => onChange(subtasks.map(s => s.id === id ? { ...s, done: !s.done } : s));
+  const remove = (id) => onChange(subtasks.filter(s => s.id !== id));
+  const add = () => { if (newText.trim()) { onChange([...subtasks, { id: uid(), text: newText.trim(), done: false }]); setNewText(""); } };
+  return (
+    <div>
+      {subtasks.map(s => (
+        <div key={s.id} style={{ display: "flex", alignItems: "center", gap: 6, padding: "3px 0" }}
+          onMouseEnter={e => e.currentTarget.querySelector('.del-btn') && (e.currentTarget.querySelector('.del-btn').style.opacity = 1)}
+          onMouseLeave={e => e.currentTarget.querySelector('.del-btn') && (e.currentTarget.querySelector('.del-btn').style.opacity = 0)}>
+          <button onClick={() => toggle(s.id)} style={{ fontSize: 15, background: "none", border: "none", cursor: "pointer", color: s.done ? "#10B981" : "#CBD5E1", padding: 0, lineHeight: 1 }}>
+            {s.done ? "☑" : "☐"}
+          </button>
+          <span style={{ fontSize: 12, flex: 1, textDecoration: s.done ? "line-through" : "none", color: s.done ? "#94A3B8" : "#334155" }}>{s.text}</span>
+          <button className="del-btn" onClick={() => remove(s.id)} style={{ fontSize: 11, color: "#EF4444", cursor: "pointer", background: "none", border: "none", padding: 0, opacity: 0, transition: "opacity 0.2s" }}>✕</button>
+        </div>
+      ))}
+      <div style={{ display: "flex", alignItems: "center", gap: 4, marginTop: 4 }}>
+        <input value={newText} onChange={e => setNewText(e.target.value)} placeholder="新增子任務…"
+          onKeyDown={e => { if (e.key === "Enter") add(); }}
+          style={{ fontSize: 11, border: "none", borderBottom: "1px dashed #CBD5E1", background: "transparent", outline: "none", flex: 1, padding: "3px 0", color: "#475569" }} />
+        {newText.trim() && <button onClick={add} style={{ fontSize: 11, background: "none", border: "none", color: "#3B82F6", cursor: "pointer", fontWeight: 700 }}>＋</button>}
+      </div>
+    </div>
+  );
+}
+
+// ── File Links ──
+function getFileIcon(url, name) {
+  const lower = (name || url || "").toLowerCase();
+  if (lower.match(/\.(pdf)$/)) return "📕";
+  if (lower.match(/\.(docx?|rtf|odt)$/)) return "📘";
+  if (lower.match(/\.(xlsx?|csv|tsv)$/)) return "📗";
+  if (lower.match(/\.(pptx?|key)$/)) return "📙";
+  if (lower.match(/\.(jpg|jpeg|png|gif|svg|webp)$/)) return "🖼️";
+  if (lower.match(/\.(zip|rar|7z|tar|gz)$/)) return "📦";
+  if (lower.match(/\.(py|r|js|ts|html|css|ipynb)$/)) return "💻";
+  if (url && (url.includes("docs.google") || url.includes("drive.google"))) return "☁️";
+  if (url && (url.includes("dropbox.com"))) return "☁️";
+  if (url && (url.includes("onedrive") || url.includes("sharepoint"))) return "☁️";
+  if (url && (url.includes("notion.so") || url.includes("notion.site"))) return "☁️";
+  if (url && url.match(/^https?:\/\//)) return "🔗";
+  return "📄";
+}
+
+function getLinkType(url) {
+  if (!url) return "local";
+  if (url.match(/^https?:\/\//)) return "cloud";
+  return "local";
+}
+
+function FileLinksEditor({ fileLinks, onChange, accentColor }) {
+  const [showAdd, setShowAdd] = useState(false);
+  const [newName, setNewName] = useState("");
+  const [newUrl, setNewUrl] = useState("");
+  const [copied, setCopied] = useState(null);
+  const nameRef = useRef(null);
+
+  const add = () => {
+    if (newUrl.trim()) {
+      const name = newName.trim() || newUrl.trim().split(/[/\\]/).pop() || "未命名檔案";
+      const type = getLinkType(newUrl.trim());
+      onChange([...fileLinks, { id: uid(), name, url: newUrl.trim(), type }]);
+      setNewName(""); setNewUrl(""); setShowAdd(false);
+    }
+  };
+
+  const remove = (id) => onChange(fileLinks.filter(f => f.id !== id));
+
+  const openLink = (e, f) => {
+    e.stopPropagation();
+    if (f.type === "cloud") {
+      window.open(f.url, "_blank");
+    } else {
+      // For local files, copy path and show hint
+      copyPath(e, f);
+    }
+  };
+
+  const copyPath = (e, f) => {
+    e.stopPropagation();
+    navigator.clipboard.writeText(f.url).then(() => {
+      setCopied(f.id);
+      setTimeout(() => setCopied(null), 1500);
+    }).catch(() => {
+      // Fallback for older browsers
+      const ta = document.createElement("textarea");
+      ta.value = f.url;
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand("copy");
+      document.body.removeChild(ta);
+      setCopied(f.id);
+      setTimeout(() => setCopied(null), 1500);
+    });
+  };
+
+  const btnStyle = { fontSize: 10, padding: "3px 8px", borderRadius: 5, border: "none", cursor: "pointer", fontWeight: 600, transition: "all 0.15s", whiteSpace: "nowrap" };
+
+  return (
+    <div>
+      {fileLinks.length > 0 && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 4, marginBottom: 8 }}>
+          {fileLinks.map(f => (
+            <div key={f.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 10px", background: "#F8FAFC", borderRadius: 8, border: "1px solid #F1F5F9", transition: "border-color 0.15s" }}
+              onMouseEnter={e => { e.currentTarget.style.borderColor = "#CBD5E1"; const b = e.currentTarget.querySelector('.fdel'); if(b) b.style.opacity = 1; }}
+              onMouseLeave={e => { e.currentTarget.style.borderColor = "#F1F5F9"; const b = e.currentTarget.querySelector('.fdel'); if(b) b.style.opacity = 0; }}>
+              <span style={{ fontSize: 16 }}>{getFileIcon(f.url, f.name)}</span>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 12, fontWeight: 600, color: "#334155", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{f.name}</div>
+                <div style={{ fontSize: 10, color: "#94A3B8", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{f.url}</div>
+              </div>
+              <span style={{ fontSize: 9, padding: "1px 6px", borderRadius: 99, background: f.type === "cloud" ? "#DBEAFE" : "#F1F5F9", color: f.type === "cloud" ? "#2563EB" : "#64748B", fontWeight: 600, whiteSpace: "nowrap" }}>
+                {f.type === "cloud" ? "☁ 雲端" : "💾 本機"}
+              </span>
+              {f.type === "cloud" ? (
+                <button onClick={e => openLink(e, f)} style={{ ...btnStyle, background: "#DBEAFE", color: "#2563EB" }}
+                  onMouseEnter={e => { e.currentTarget.style.background = "#3B82F6"; e.currentTarget.style.color = "white"; }}
+                  onMouseLeave={e => { e.currentTarget.style.background = "#DBEAFE"; e.currentTarget.style.color = "#2563EB"; }}>
+                  開啟 ↗
+                </button>
+              ) : null}
+              <button onClick={e => copyPath(e, f)}
+                style={{ ...btnStyle, background: copied === f.id ? "#D1FAE5" : "#F1F5F9", color: copied === f.id ? "#059669" : "#64748B" }}
+                onMouseEnter={e => { if (copied !== f.id) { e.currentTarget.style.background = "#E2E8F0"; } }}
+                onMouseLeave={e => { if (copied !== f.id) { e.currentTarget.style.background = "#F1F5F9"; } }}>
+                {copied === f.id ? "✓ 已複製" : "複製路徑"}
+              </button>
+              <button className="fdel" onClick={() => remove(f.id)} style={{ fontSize: 12, color: "#EF4444", cursor: "pointer", background: "none", border: "none", padding: "2px 4px", opacity: 0, transition: "opacity 0.2s" }}>✕</button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {showAdd ? (
+        <div style={{ padding: "10px 12px", background: "#F8FAFC", borderRadius: 8, border: "1px dashed #CBD5E1" }}>
+          <input ref={nameRef} value={newName} onChange={e => setNewName(e.target.value)} placeholder="檔案名稱（選填，如：報告草稿.docx）"
+            style={{ width: "100%", fontSize: 12, border: "none", borderBottom: "1px solid #E2E8F0", background: "transparent", outline: "none", padding: "4px 0", marginBottom: 8, color: "#334155" }} />
+          <input value={newUrl} onChange={e => setNewUrl(e.target.value)} placeholder="貼上檔案路徑或雲端連結…"
+            onKeyDown={e => { if (e.key === "Enter") add(); }}
+            style={{ width: "100%", fontSize: 12, border: "none", borderBottom: "1px solid #E2E8F0", background: "transparent", outline: "none", padding: "4px 0", marginBottom: 10, color: "#334155" }} />
+          <div style={{ display: "flex", gap: 6, justifyContent: "flex-end" }}>
+            <button onClick={() => { setShowAdd(false); setNewName(""); setNewUrl(""); }}
+              style={{ fontSize: 11, padding: "4px 12px", borderRadius: 6, background: "#F1F5F9", color: "#64748B", border: "none", cursor: "pointer" }}>取消</button>
+            <button onClick={add}
+              style={{ fontSize: 11, padding: "4px 12px", borderRadius: 6, background: newUrl.trim() ? (accentColor || "#3B82F6") : "#E2E8F0", color: newUrl.trim() ? "white" : "#94A3B8", border: "none", cursor: newUrl.trim() ? "pointer" : "default", fontWeight: 600 }}>新增連結</button>
+          </div>
+          <div style={{ fontSize: 10, color: "#94A3B8", marginTop: 8, lineHeight: 1.6 }}>
+            💡 支援格式：本機路徑（如 C:\Research\data.xlsx）、Google Drive、Dropbox、OneDrive、Notion 或任何網址
+          </div>
+        </div>
+      ) : (
+        <button onClick={() => { setShowAdd(true); setTimeout(() => nameRef.current?.focus(), 50); }}
+          style={{ fontSize: 12, padding: "6px 12px", borderRadius: 8, background: "#F8FAFC", color: "#64748B", border: "1px dashed #CBD5E1", cursor: "pointer", width: "100%", textAlign: "left", transition: "all 0.15s" }}
+          onMouseEnter={e => { e.currentTarget.style.borderColor = accentColor || "#3B82F6"; e.currentTarget.style.color = "#334155"; }}
+          onMouseLeave={e => { e.currentTarget.style.borderColor = "#CBD5E1"; e.currentTarget.style.color = "#64748B"; }}>
+          📎 新增檔案連結…
+        </button>
+      )}
+    </div>
+  );
+}
+
+function StickyNote({ note, onEdit }) {
+  const c = COLORS[note.colorIdx];
+  const pri = PRIORITIES.find(p => p.key === note.priority);
+  const st = STATUSES.find(s => s.key === note.status);
+  const diff = note.dueDate ? daysBetween(note.dueDate, todayStr()) : null;
+  const isOverdue = diff !== null && diff < 0 && note.status !== "done";
+
+  return (
+    <div onClick={() => onEdit(note)} className="fade-in" style={{
+      background: c.bg, borderLeft: "4px solid " + c.border, borderRadius: 6, padding: "14px 16px",
+      cursor: "pointer", position: "relative",
+      boxShadow: isOverdue ? "0 0 0 2px #EF4444, 0 4px 16px rgba(0,0,0,0.08)" : "0 2px 8px rgba(0,0,0,0.06)",
+      transition: "transform 0.15s ease, box-shadow 0.15s ease",
+    }}
+      onMouseEnter={e => { e.currentTarget.style.transform = "translateY(-2px)"; e.currentTarget.style.boxShadow = "0 6px 20px rgba(0,0,0,0.1)"; }}
+      onMouseLeave={e => { e.currentTarget.style.transform = ""; e.currentTarget.style.boxShadow = isOverdue ? "0 0 0 2px #EF4444, 0 4px 16px rgba(0,0,0,0.08)" : "0 2px 8px rgba(0,0,0,0.06)"; }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          <span style={{ fontSize: 12 }}>{pri.icon}</span>
+          <span style={{ fontSize: 11, color: st.color, fontWeight: 600 }}>{st.icon} {st.label}</span>
+        </div>
+        <DueBadge dueDate={note.dueDate} status={note.status} />
+      </div>
+      <h3 style={{ fontSize: 14, fontWeight: 700, color: c.text, margin: "4px 0 6px", lineHeight: 1.4,
+        textDecoration: note.status === "done" ? "line-through" : "none", opacity: note.status === "done" ? 0.6 : 1 }}>
+        {note.title || "未命名便利貼"}
+      </h3>
+      {note.tags.length > 0 && (
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: 4 }}>
+          {note.tags.map(t => <span key={t} style={{ fontSize: 10, padding: "1px 6px", borderRadius: 99, background: c.border + "22", color: c.accent, fontWeight: 500 }}>#{t}</span>)}
+        </div>
+      )}
+      {note.memo && (
+        <div style={{ fontSize: 11, color: "#64748B", marginTop: 4, padding: "4px 6px", background: "rgba(255,255,255,0.5)", borderRadius: 4, lineHeight: 1.5, overflow: "hidden", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>
+          📝 {note.memo}
+        </div>
+      )}
+      {note.fileLinks && note.fileLinks.length > 0 && (
+        <div style={{ fontSize: 11, color: "#64748B", marginTop: 4, display: "flex", alignItems: "center", gap: 4, flexWrap: "wrap" }}>
+          <span>📎</span>
+          {note.fileLinks.slice(0, 3).map(f => (
+            <span key={f.id} style={{ padding: "1px 6px", borderRadius: 4, background: "rgba(255,255,255,0.6)", fontSize: 10, maxWidth: 100, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", display: "inline-block" }}>
+              {getFileIcon(f.url, f.name)} {f.name}
+            </span>
+          ))}
+          {note.fileLinks.length > 3 && <span style={{ fontSize: 10, color: "#94A3B8" }}>+{note.fileLinks.length - 3}</span>}
+        </div>
+      )}
+      {note.subtasks.length > 0 && (
+        <div style={{ fontSize: 11, color: "#64748B", marginTop: 4 }}>☑ {note.subtasks.filter(s => s.done).length}/{note.subtasks.length} 子任務</div>
+      )}
+      <ProgressBar note={note} />
+    </div>
+  );
+}
+
+// ── Edit Modal ──
+function EditModal({ note, dispatch, onClose }) {
+  const [form, setForm] = useState({ ...note });
+  const c = COLORS[form.colorIdx];
+  const titleRef = useRef(null);
+  useEffect(() => { if (titleRef.current && !form.title) titleRef.current.focus(); }, []);
+
+  const save = () => { dispatch({ type: "UPDATE_NOTE", id: note.id, payload: form }); onClose(); };
+  const del = () => { if (confirm("確定要刪除這張便利貼嗎？")) { dispatch({ type: "DELETE_NOTE", id: note.id }); onClose(); } };
+
+  const sel = { fontSize: 12, padding: "5px 10px", borderRadius: 8, border: "1px solid #E2E8F0", background: "white", color: "#334155", outline: "none", cursor: "pointer" };
+
+  return (
+    <div style={{ position: "fixed", inset: 0, zIndex: 999, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,0.4)", backdropFilter: "blur(4px)" }} onClick={onClose}>
+      <div className="modal-in" onClick={e => e.stopPropagation()} style={{ background: "white", borderRadius: 16, padding: "28px 28px 20px", width: "100%", maxWidth: 520, maxHeight: "90vh", overflow: "auto", boxShadow: "0 24px 64px rgba(0,0,0,0.2)", borderTop: "4px solid " + c.border }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
+          <h2 style={{ fontSize: 18, fontWeight: 800, color: "#1E293B" }}>📝 編輯便利貼</h2>
+          <button onClick={onClose} style={{ background: "none", border: "none", fontSize: 22, cursor: "pointer", color: "#94A3B8", lineHeight: 1 }}>✕</button>
+        </div>
+
+        <input ref={titleRef} value={form.title} onChange={e => setForm({ ...form, title: e.target.value })} placeholder="輸入標題…"
+          style={{ width: "100%", fontSize: 16, fontWeight: 700, border: "none", borderBottom: "2px solid " + c.border, padding: "8px 0", marginBottom: 20, outline: "none", background: "transparent", color: "#1E293B" }} />
+
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 12, marginBottom: 20 }}>
+          <div>
+            <label style={{ fontSize: 11, color: "#64748B", fontWeight: 600, display: "block", marginBottom: 4 }}>狀態</label>
+            <select value={form.status} onChange={e => setForm({ ...form, status: e.target.value })} style={sel}>
+              {STATUSES.map(s => <option key={s.key} value={s.key}>{s.icon} {s.label}</option>)}
+            </select>
+          </div>
+          <div>
+            <label style={{ fontSize: 11, color: "#64748B", fontWeight: 600, display: "block", marginBottom: 4 }}>優先級</label>
+            <select value={form.priority} onChange={e => setForm({ ...form, priority: e.target.value })} style={sel}>
+              {PRIORITIES.map(p => <option key={p.key} value={p.key}>{p.icon} {p.label}</option>)}
+            </select>
+          </div>
+          <div>
+            <label style={{ fontSize: 11, color: "#64748B", fontWeight: 600, display: "block", marginBottom: 4 }}>到期日</label>
+            <input type="date" value={form.dueDate} onChange={e => setForm({ ...form, dueDate: e.target.value })} style={sel} />
+          </div>
+        </div>
+
+        <div style={{ marginBottom: 16 }}>
+          <label style={{ fontSize: 11, color: "#64748B", fontWeight: 600, display: "block", marginBottom: 6 }}>顏色</label>
+          <div style={{ display: "flex", gap: 8 }}>
+            {COLORS.map((cl, i) => (
+              <button key={i} onClick={() => setForm({ ...form, colorIdx: i })}
+                style={{ width: 30, height: 30, borderRadius: "50%", background: cl.bg, border: form.colorIdx === i ? "3px solid " + cl.border : "2px solid #E2E8F0", cursor: "pointer", transition: "transform 0.15s" }}
+                onMouseEnter={e => e.currentTarget.style.transform = "scale(1.15)"}
+                onMouseLeave={e => e.currentTarget.style.transform = ""} />
+            ))}
+          </div>
+        </div>
+
+        <div style={{ marginBottom: 16 }}>
+          <label style={{ fontSize: 11, color: "#64748B", fontWeight: 600, display: "block", marginBottom: 6 }}>標籤</label>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+            {TAGS.map(t => {
+              const active = form.tags.includes(t);
+              return (
+                <button key={t} onClick={() => setForm({ ...form, tags: active ? form.tags.filter(x => x !== t) : [...form.tags, t] })}
+                  style={{ fontSize: 11, padding: "3px 10px", borderRadius: 99, cursor: "pointer", fontWeight: 500, transition: "all 0.15s",
+                    background: active ? c.border + "22" : "#F1F5F9", color: active ? c.accent : "#94A3B8", border: active ? "1px solid " + c.border + "44" : "1px solid transparent" }}>
+                  #{t}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        <div style={{ marginBottom: 16 }}>
+          <label style={{ fontSize: 11, color: "#64748B", fontWeight: 600, display: "block", marginBottom: 6 }}>備註</label>
+          <textarea value={form.memo || ""} onChange={e => setForm({ ...form, memo: e.target.value })} placeholder="記錄執行情況、注意事項…"
+            rows={3}
+            style={{ width: "100%", fontSize: 12, padding: "8px 10px", borderRadius: 8, border: "1px solid #E2E8F0", background: "#FAFBFC", outline: "none", resize: "vertical", color: "#334155", lineHeight: 1.6, fontFamily: "inherit" }} />
+        </div>
+
+        <div style={{ marginBottom: 16 }}>
+          <label style={{ fontSize: 11, color: "#64748B", fontWeight: 600, display: "block", marginBottom: 6 }}>📎 檔案連結</label>
+          <FileLinksEditor fileLinks={form.fileLinks || []} onChange={links => setForm({ ...form, fileLinks: links })} accentColor={c.border} />
+        </div>
+
+        <div style={{ marginBottom: 20 }}>
+          <label style={{ fontSize: 11, color: "#64748B", fontWeight: 600, display: "block", marginBottom: 6 }}>子任務</label>
+          <SubtaskEditor subtasks={form.subtasks} onChange={subs => setForm({ ...form, subtasks: subs })} />
+        </div>
+
+        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", paddingTop: 12, borderTop: "1px solid #F1F5F9" }}>
+          <button onClick={del}
+            style={{ fontSize: 13, padding: "8px 16px", borderRadius: 8, background: "#FEE2E2", color: "#DC2626", border: "none", cursor: "pointer", fontWeight: 600 }}>
+            🗑 刪除
+          </button>
+          <button onClick={save}
+            style={{ fontSize: 13, padding: "8px 22px", borderRadius: 8, background: c.border, color: "white", border: "none", cursor: "pointer", fontWeight: 700, boxShadow: "0 2px 8px " + c.border + "44" }}>
+            ✓ 儲存
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Stats ──
+function StatsDashboard({ notes }) {
+  const total = notes.length;
+  const done = notes.filter(n => n.status === "done").length;
+  const doing = notes.filter(n => n.status === "doing").length;
+  const todo = notes.filter(n => n.status === "todo").length;
+  const overdue = notes.filter(n => n.dueDate && daysBetween(n.dueDate, todayStr()) < 0 && n.status !== "done").length;
+  const rate = total > 0 ? Math.round(done / total * 100) : 0;
+  const allSubs = notes.flatMap(n => n.subtasks);
+  const subDone = allSubs.filter(s => s.done).length;
+  const subTotal = allSubs.length;
+  const byPriority = PRIORITIES.map(p => ({ ...p, count: notes.filter(n => n.priority === p.key && n.status !== "done").length }));
+  const byTag = TAGS.map(t => ({ tag: t, count: notes.filter(n => n.tags.includes(t)).length })).filter(t => t.count > 0).sort((a, b) => b.count - a.count);
+
+  const box = { background: "white", borderRadius: 12, padding: "16px 20px", boxShadow: "0 1px 4px rgba(0,0,0,0.06)" };
+  const big = { fontSize: 32, fontWeight: 800, lineHeight: 1 };
+  const sm = { fontSize: 11, color: "#64748B", fontWeight: 500, marginTop: 4 };
+
+  return (
+    <div style={{ padding: "8px 0" }}>
+      <h2 style={{ fontSize: 18, fontWeight: 800, color: "#1E293B", marginBottom: 16 }}>📊 數據總覽</h2>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, maxWidth: 520, marginBottom: 12 }}>
+        <div style={box}>
+          <div style={{ ...big, color: "#3B82F6" }}>{rate}%</div>
+          <div style={sm}>完成率（{done}/{total}）</div>
+          <div style={{ height: 6, borderRadius: 6, background: "#E2E8F0", marginTop: 8, overflow: "hidden" }}>
+            <div style={{ width: rate + "%", height: "100%", borderRadius: 6, background: "linear-gradient(90deg, #3B82F6, #10B981)", transition: "width 0.8s" }} />
+          </div>
+        </div>
+        <div style={box}>
+          <div style={{ ...big, color: overdue > 0 ? "#EF4444" : "#10B981" }}>{overdue}</div>
+          <div style={sm}>逾期任務</div>
+          {overdue > 0 && <div style={{ fontSize: 11, color: "#EF4444", marginTop: 4 }}>⚠ 需要立即處理</div>}
+        </div>
+        <div style={box}>
+          <div style={{ display: "flex", gap: 16 }}>
+            <div><div style={{ ...big, fontSize: 24, color: "#94A3B8" }}>{todo}</div><div style={sm}>待辦</div></div>
+            <div><div style={{ ...big, fontSize: 24, color: "#3B82F6" }}>{doing}</div><div style={sm}>進行中</div></div>
+            <div><div style={{ ...big, fontSize: 24, color: "#10B981" }}>{done}</div><div style={sm}>完成</div></div>
+          </div>
+        </div>
+        <div style={box}>
+          <div style={{ ...big, fontSize: 24, color: "#8B5CF6" }}>{subDone}/{subTotal}</div>
+          <div style={sm}>子任務完成</div>
+        </div>
+      </div>
+      <div style={{ ...box, marginBottom: 12, maxWidth: 520 }}>
+        <div style={{ fontSize: 12, fontWeight: 700, color: "#475569", marginBottom: 8 }}>未完成任務 — 優先級分佈</div>
+        {byPriority.map(p => (
+          <div key={p.key} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+            <span style={{ fontSize: 12, width: 55 }}>{p.icon} {p.label}</span>
+            <div style={{ flex: 1, height: 8, borderRadius: 4, background: "#F1F5F9", overflow: "hidden" }}>
+              <div style={{ width: (total > 0 ? p.count / total * 100 : 0) + "%", height: "100%", borderRadius: 4, background: p.key === "urgent" ? "#EF4444" : p.key === "high" ? "#F97316" : p.key === "medium" ? "#EAB308" : "#22C55E" }} />
+            </div>
+            <span style={{ fontSize: 11, color: "#64748B", width: 20, textAlign: "right" }}>{p.count}</span>
+          </div>
+        ))}
+      </div>
+      {byTag.length > 0 && (
+        <div style={{ ...box, maxWidth: 520 }}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: "#475569", marginBottom: 8 }}>標籤分佈</div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+            {byTag.map(t => (
+              <span key={t.tag} style={{ fontSize: 12, padding: "4px 12px", borderRadius: 99, background: "#F1F5F9", color: "#475569", fontWeight: 500 }}>
+                #{t.tag} <span style={{ fontWeight: 700, color: "#3B82F6" }}>{t.count}</span>
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Main App ──
+function App() {
+  const [state, dispatch] = useReducer(reducer, initState);
+  const [editNote, setEditNote] = useState(null);
+  const [sortBy, setSortBy] = useState("priority");
+
+  // Notification check on load
+  useEffect(() => {
+    if ("Notification" in window && Notification.permission === "default") {
+      Notification.requestPermission();
+    }
+    // Check overdue every minute
+    const iv = setInterval(() => {
+      const overdue = state.notes.filter(n => n.dueDate && daysBetween(n.dueDate, todayStr()) < 0 && n.status !== "done");
+      if (overdue.length > 0 && "Notification" in window && Notification.permission === "granted") {
+        new Notification("📌 Smart Sticky Notes", { body: "你有 " + overdue.length + " 項任務已逾期！", icon: "📌" });
+      }
+    }, 60000);
+    return () => clearInterval(iv);
+  }, [state.notes]);
+
+  const filtered = state.notes.filter(n => {
+    if (state.filter.status !== "all" && n.status !== state.filter.status) return false;
+    if (state.filter.priority !== "all" && n.priority !== state.filter.priority) return false;
+    if (state.filter.tag !== "all" && !n.tags.includes(state.filter.tag)) return false;
+    return true;
+  });
+
+  const sorted = [...filtered].sort((a, b) => {
+    if (sortBy === "priority") return PRIORITIES.find(p => p.key === a.priority).sort - PRIORITIES.find(p => p.key === b.priority).sort;
+    if (sortBy === "dueDate") return (a.dueDate || "9999").localeCompare(b.dueDate || "9999");
+    if (sortBy === "status") return STATUSES.findIndex(s => s.key === a.status) - STATUSES.findIndex(s => s.key === b.status);
+    return 0;
+  });
+
+  const boardGroups = STATUSES.map(s => ({ ...s, notes: sorted.filter(n => n.status === s.key) }));
+
+  const addNew = () => {
+    const n = defaultNote();
+    dispatch({ type: "ADD_NOTE", payload: n });
+    setEditNote(n);
+  };
+
+  const chip = (active) => ({
+    fontSize: 11, padding: "4px 12px", borderRadius: 99, cursor: "pointer", fontWeight: active ? 700 : 500,
+    background: active ? "#1E293B" : "#F1F5F9", color: active ? "white" : "#64748B", border: "none", transition: "all 0.15s",
+  });
+
+  return (
+    <div style={{ minHeight: "100vh" }}>
+      {/* Header */}
+      <div style={{ padding: "20px 24px 0", maxWidth: 1200, margin: "0 auto" }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 12 }}>
+          <div>
+            <h1 style={{ fontSize: 26, fontWeight: 900, color: "#1E293B", letterSpacing: -0.5 }}>
+              <span style={{ display: "inline-block", transform: "rotate(-3deg)", marginRight: 8 }}>📌</span>
+              Smart Sticky Notes
+            </h1>
+            <p style={{ fontSize: 12, color: "#94A3B8", marginTop: 2 }}>你的研究任務，一目了然</p>
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            {["board", "list", "stats"].map(v => (
+              <button key={v} onClick={() => dispatch({ type: "SET_VIEW", view: v })} style={{ ...chip(state.view === v), padding: "6px 14px", fontSize: 12 }}>
+                {v === "board" ? "📋 看板" : v === "list" ? "📄 列表" : "📊 統計"}
+              </button>
+            ))}
+            <button onClick={addNew} style={{ fontSize: 13, padding: "6px 16px", borderRadius: 99, background: "#1E293B", color: "white", border: "none", cursor: "pointer", fontWeight: 700, boxShadow: "0 2px 8px rgba(0,0,0,0.15)" }}>
+              ＋ 新增
+            </button>
+          </div>
+        </div>
+
+        {/* Filters */}
+        {state.view !== "stats" && (
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 16, marginTop: 16, marginBottom: 8, padding: "12px 16px", background: "rgba(255,255,255,0.7)", borderRadius: 12, backdropFilter: "blur(8px)" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              <span style={{ fontSize: 11, color: "#64748B", fontWeight: 600 }}>狀態</span>
+              {[{ key: "all", label: "全部" }, ...STATUSES].map(s => (
+                <button key={s.key} onClick={() => dispatch({ type: "SET_FILTER", payload: { status: s.key } })} style={chip(state.filter.status === s.key)}>{s.label}</button>
+              ))}
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              <span style={{ fontSize: 11, color: "#64748B", fontWeight: 600 }}>優先</span>
+              {[{ key: "all", label: "全部", icon: "" }, ...PRIORITIES].map(p => (
+                <button key={p.key} onClick={() => dispatch({ type: "SET_FILTER", payload: { priority: p.key } })} style={chip(state.filter.priority === p.key)}>{p.icon ? p.icon + " " : ""}{p.label}</button>
+              ))}
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              <span style={{ fontSize: 11, color: "#64748B", fontWeight: 600 }}>標籤</span>
+              <button onClick={() => dispatch({ type: "SET_FILTER", payload: { tag: "all" } })} style={chip(state.filter.tag === "all")}>全部</button>
+              {TAGS.map(t => (
+                <button key={t} onClick={() => dispatch({ type: "SET_FILTER", payload: { tag: t } })} style={chip(state.filter.tag === t)}>#{t}</button>
+              ))}
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              <span style={{ fontSize: 11, color: "#64748B", fontWeight: 600 }}>排序</span>
+              {[{ key: "priority", label: "優先級" }, { key: "dueDate", label: "到期日" }, { key: "status", label: "狀態" }].map(s => (
+                <button key={s.key} onClick={() => setSortBy(s.key)} style={chip(sortBy === s.key)}>{s.label}</button>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Content */}
+      <div style={{ maxWidth: 1200, margin: "0 auto", padding: "8px 24px 40px" }}>
+        {state.view === "stats" ? <StatsDashboard notes={state.notes} /> :
+         state.view === "board" ? (
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 16, marginTop: 8 }}>
+            {boardGroups.map(group => (
+              <div key={group.key}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12, paddingLeft: 4 }}>
+                  <span style={{ fontSize: 14, color: group.color, fontWeight: 800 }}>{group.icon}</span>
+                  <span style={{ fontSize: 13, fontWeight: 700, color: "#475569" }}>{group.label}</span>
+                  <span style={{ fontSize: 11, background: "#F1F5F9", borderRadius: 99, padding: "1px 8px", color: "#94A3B8", fontWeight: 600 }}>{group.notes.length}</span>
+                </div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                  {group.notes.map(n => <StickyNote key={n.id} note={n} onEdit={setEditNote} />)}
+                  {group.notes.length === 0 && (
+                    <div style={{ padding: 24, textAlign: "center", color: "#CBD5E1", fontSize: 12, border: "2px dashed #E2E8F0", borderRadius: 8 }}>沒有任務</div>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 8 }}>
+            {sorted.map(n => {
+              const st = STATUSES.find(s => s.key === n.status);
+              return (
+                <div key={n.id} onClick={() => setEditNote(n)} className="fade-in"
+                  style={{ display: "flex", alignItems: "center", gap: 12, background: "rgba(255,255,255,0.8)", borderRadius: 10, padding: "10px 16px",
+                    cursor: "pointer", borderLeft: "4px solid " + COLORS[n.colorIdx].border, boxShadow: "0 1px 3px rgba(0,0,0,0.04)", transition: "transform 0.1s" }}
+                  onMouseEnter={e => e.currentTarget.style.transform = "translateX(4px)"}
+                  onMouseLeave={e => e.currentTarget.style.transform = ""}>
+                  <button onClick={e => { e.stopPropagation(); const next = n.status === "todo" ? "doing" : n.status === "doing" ? "done" : "todo"; dispatch({ type: "UPDATE_NOTE", id: n.id, payload: { status: next } }); }}
+                    style={{ fontSize: 18, background: "none", border: "none", cursor: "pointer", color: st.color, padding: 0, lineHeight: 1 }}>{st.icon}</button>
+                  <span style={{ fontSize: 12 }}>{PRIORITIES.find(p => p.key === n.priority).icon}</span>
+                  <span style={{ flex: 1, fontSize: 13, fontWeight: 600, color: "#1E293B", textDecoration: n.status === "done" ? "line-through" : "none", opacity: n.status === "done" ? 0.5 : 1 }}>{n.title || "未命名"}</span>
+                  {n.tags.map(t => <span key={t} style={{ fontSize: 10, padding: "1px 6px", borderRadius: 99, background: "#F1F5F9", color: "#64748B" }}>#{t}</span>)}
+                  {n.subtasks.length > 0 && <span style={{ fontSize: 10, color: "#94A3B8" }}>☑{n.subtasks.filter(s => s.done).length}/{n.subtasks.length}</span>}
+                  <DueBadge dueDate={n.dueDate} status={n.status} />
+                </div>
+              );
+            })}
+            {sorted.length === 0 && <div style={{ padding: 40, textAlign: "center", color: "#94A3B8", fontSize: 14 }}>沒有符合篩選條件的任務</div>}
+          </div>
+        )}
+      </div>
+
+      {editNote && <EditModal note={editNote} dispatch={dispatch} onClose={() => setEditNote(null)} />}
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+</script>
+</body>
+</html>
