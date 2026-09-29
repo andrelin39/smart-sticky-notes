@@ -17,7 +17,7 @@ Smart Sticky Notes 是一個強化版桌面便利貼工具，將傳統便利貼�
 | 功能 | 說明 |
 |------|------|
 | 📋 **三種檢視模式** | 看板（Kanban）、列表、統計儀表板，自由切換 |
-| 🔄 **狀態追蹤** | 待辦 → 進行中 → 已完成，列表模式可一鍵切換 |
+| 🔄 **狀態追蹤** | 待辦 → 進行中 → 暫停 → 已完成，列表模式可一鍵切換；狀態篩選可複選 |
 | ⏰ **到期提醒** | 逾期紅框警示、倒數天數、瀏覽器桌面通知 |
 | ✅ **子任務拆解** | 無限新增子任務，自動計算進度百分比 |
 | 🎯 **優先級排序** | 四級優先級（緊急/重要/一般/低），支援排序 |
@@ -130,7 +130,7 @@ npm install && npm run dev
 ### ✨ Features
 
 - 📋 Three view modes: Kanban board, List, Statistics dashboard
-- 🔄 Status tracking: Todo → In Progress → Done
+- 🔄 Status tracking: Todo → In Progress → Paused → Done, with multi-select status filter
 - ⏰ Due date reminders with browser notifications
 - ✅ Unlimited subtasks with auto-calculated progress
 - 🎯 4-level priority system with sorting

@@ -6,6 +6,7 @@ export default function StatsDashboard({ notes }) {
   const done = notes.filter(n => n.status === "done").length;
   const doing = notes.filter(n => n.status === "doing").length;
   const todo = notes.filter(n => n.status === "todo").length;
+  const paused = notes.filter(n => n.status === "paused").length;
   const overdue = notes.filter(n => n.dueDate && daysBetween(n.dueDate, todayStr()) < 0 && n.status !== "done").length;
   const rate = total > 0 ? Math.round(done / total * 100) : 0;
   const allSubs = notes.flatMap(n => n.subtasks);
@@ -38,6 +39,7 @@ export default function StatsDashboard({ notes }) {
           <div style={{ display: "flex", gap: 16 }}>
             <div><div style={{ ...big, fontSize: 24, color: "#94A3B8" }}>{todo}</div><div style={sm}>待辦</div></div>
             <div><div style={{ ...big, fontSize: 24, color: "#3B82F6" }}>{doing}</div><div style={sm}>進行中</div></div>
+            <div><div style={{ ...big, fontSize: 24, color: "#F59E0B" }}>{paused}</div><div style={sm}>暫停</div></div>
             <div><div style={{ ...big, fontSize: 24, color: "#10B981" }}>{done}</div><div style={sm}>完成</div></div>
           </div>
         </div>

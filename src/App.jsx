@@ -11,7 +11,7 @@ import './App.css';
 const initState = {
   notes: loadData() || sampleNotes(),
   view: "board",
-  filter: { status: "all", priority: "all", tag: "all" },
+  filter: { status: [], priority: "all", tag: "all" },
 };
 
 export default function App() {
@@ -34,7 +34,7 @@ export default function App() {
   }, [state.notes]);
 
   const filtered = state.notes.filter(n => {
-    if (state.filter.status !== "all" && n.status !== state.filter.status) return false;
+    if (state.filter.status.length > 0 && !state.filter.status.includes(n.status)) return false;
     if (state.filter.priority !== "all" && n.priority !== state.filter.priority) return false;
     if (state.filter.tag !== "all" && !n.tags.includes(state.filter.tag)) return false;
     return true;
@@ -47,7 +47,16 @@ export default function App() {
     return 0;
   });
 
-  const boardGroups = STATUSES.map(s => ({ ...s, notes: sorted.filter(n => n.status === s.key) }));
+  // 狀態篩選：空陣列 = 全部；可複選
+  const statusSel = state.filter.status;
+  const visibleStatuses = statusSel.length > 0 ? STATUSES.filter(s => statusSel.includes(s.key)) : STATUSES;
+  const boardGroups = visibleStatuses.map(s => ({ ...s, notes: sorted.filter(n => n.status === s.key) }));
+
+  const toggleStatus = (key) => {
+    let next = statusSel.includes(key) ? statusSel.filter(k => k !== key) : [...statusSel, key];
+    if (next.length === STATUSES.length) next = []; // 全選等同「全部」
+    dispatch({ type: "SET_FILTER", payload: { status: next } });
+  };
 
   const addNew = () => {
     const n = defaultNote();
@@ -89,9 +98,15 @@ export default function App() {
           <div style={{ display: "flex", flexWrap: "wrap", gap: 16, marginTop: 16, marginBottom: 8, padding: "12px 16px", background: "rgba(255,255,255,0.7)", borderRadius: 12, backdropFilter: "blur(8px)" }}>
             <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
               <span style={{ fontSize: 11, color: "#64748B", fontWeight: 600 }}>狀態</span>
-              {[{ key: "all", label: "全部" }, ...STATUSES].map(s => (
-                <button key={s.key} onClick={() => dispatch({ type: "SET_FILTER", payload: { status: s.key } })} style={chip(state.filter.status === s.key)}>{s.label}</button>
-              ))}
+              <button onClick={() => dispatch({ type: "SET_FILTER", payload: { status: [] } })} style={chip(statusSel.length === 0)}>全部</button>
+              {STATUSES.map(s => {
+                const active = statusSel.includes(s.key);
+                return (
+                  <button key={s.key} onClick={() => toggleStatus(s.key)} style={chip(active)} title="可複選">
+                    <span style={{ color: active ? "white" : s.color }}>{active ? "✓" : s.icon}</span> {s.label}
+                  </button>
+                );
+              })}
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
               <span style={{ fontSize: 11, color: "#64748B", fontWeight: 600 }}>優先</span>
@@ -120,7 +135,7 @@ export default function App() {
       <div style={{ maxWidth: 1200, margin: "0 auto", padding: "8px 24px 40px" }}>
         {state.view === "stats" ? <StatsDashboard notes={state.notes} /> :
          state.view === "board" ? (
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 16, marginTop: 8 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(" + boardGroups.length + ", minmax(0, 1fr))", gap: 16, marginTop: 8 }}>
             {boardGroups.map(group => (
               <div key={group.key}>
                 <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12, paddingLeft: 4 }}>
@@ -147,7 +162,7 @@ export default function App() {
                     cursor: "pointer", borderLeft: "4px solid " + (COLORS[n.colorIdx] || COLORS[0]).border, boxShadow: "0 1px 3px rgba(0,0,0,0.04)", transition: "transform 0.1s" }}
                   onMouseEnter={e => e.currentTarget.style.transform = "translateX(4px)"}
                   onMouseLeave={e => e.currentTarget.style.transform = ""}>
-                  <button onClick={e => { e.stopPropagation(); const next = n.status === "todo" ? "doing" : n.status === "doing" ? "done" : "todo"; dispatch({ type: "UPDATE_NOTE", id: n.id, payload: { status: next } }); }}
+                  <button onClick={e => { e.stopPropagation(); const next = n.status === "todo" || n.status === "paused" ? "doing" : n.status === "doing" ? "done" : "todo"; dispatch({ type: "UPDATE_NOTE", id: n.id, payload: { status: next } }); }}
                     style={{ fontSize: 18, background: "none", border: "none", cursor: "pointer", color: st.color, padding: 0, lineHeight: 1 }}>{st.icon}</button>
                   <span style={{ fontSize: 12 }}>{PRIORITIES.find(p => p.key === n.priority).icon}</span>
                   <span style={{ flex: 1, fontSize: 13, fontWeight: 600, color: "#1E293B", textDecoration: n.status === "done" ? "line-through" : "none", opacity: n.status === "done" ? 0.5 : 1 }}>{n.title || "未命名"}</span>

@@ -14,6 +14,7 @@ export const COLORS = [
 export const STATUSES = [
   { key: "todo", label: "待辦", icon: "○", color: "#94A3B8" },
   { key: "doing", label: "進行中", icon: "◐", color: "#3B82F6" },
+  { key: "paused", label: "暫停", icon: "⏸︎", color: "#F59E0B" },
   { key: "done", label: "已完成", icon: "●", color: "#10B981" },
 ];
 
